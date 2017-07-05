@@ -21,13 +21,14 @@ enum corValues
 #define COMIMAGE_FLAGS_32BITPREFERRED 0x20000
 
 static CHAR* paths[] = {
-	{".\\AnyCPU\\DotNetCrap.exe"},
-	{".\\AnyCPUPrefer32\\DotNetCrap.exe"},
-	{".\\x64\\DotNetCrap.exe"},
-	{".\\x86\\DotNetCrap.exe"}
+	{"AnyCPU\\DotNetCrap.exe"},
+	{"AnyCPUPrefer32\\DotNetCrap.exe"},
+	{"x64\\DotNetCrap.exe"},
+	{"x86\\DotNetCrap.exe"}
 };
 
 static PBYTE GetMappedFileBase(HANDLE hFile);
+
 BOOL isDotNetILOnly(PIMAGE_COR20_HEADER cor)
 {
 	if (cor)
@@ -48,15 +49,16 @@ BOOL isDotNet32bitOnly(PIMAGE_COR20_HEADER cor)
 {
 	if (cor)
 	{
-
+		return ((cor->Flags & COMIMAGE_FLAGS_32BITREQUIRED) == COMIMAGE_FLAGS_32BITREQUIRED);
 	}
 }
+
 static PVOID GetPtrToCorHeader(HANDLE hFileHandle)
 {
 	HANDLE hMapHandle = NULL;
 	LPVOID hMapView = NULL;
 	DWORD dwSizeToMap = NULL;
-	GetFileSize(hFileHandle, 0);
+	dwSizeToMap = GetFileSize(hFileHandle, 0);
 
 	hMapHandle = CreateFileMapping(hFileHandle, NULL, PAGE_READONLY | SEC_IMAGE, 0, 0, 0);
 	if (!hMapHandle)
@@ -109,12 +111,12 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 				}
 				if (pnth && pnth->Signature == IMAGE_NT_SIGNATURE)
 				{
-					if (pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress != 0 && pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size != 0 && (pnth->FileHeader.Characteristics & IMAGE_FILE_DLL) == 0)
+					if (pnth->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64)
+						retval = x64;
+					else if (pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress != 0 && pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size != 0 && (pnth->FileHeader.Characteristics & IMAGE_FILE_DLL) == 0)
 						retval = dotnet;
 					else if (pnth->FileHeader.Machine == IMAGE_FILE_MACHINE_I386)
 						retval = x32;
-					else if (pnth->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64)
-						retval = x64;
 				}
 			}
 		}
