@@ -13,7 +13,8 @@ enum arch
 };
 
 typedef BOOL(WINAPI* LPFN_ISWOW64PROCESS)(HANDLE, PBOOL);
-#define COMIMAGE_FLAGS_32BITPREFERRED 0x20000
+
+#define COMFLAG_32BITPREFERRED 0x20000
 
 struct DotNetIdentifier
 {
@@ -72,7 +73,10 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 				}
 				if (pnth && pnth->Signature == IMAGE_NT_SIGNATURE)
 				{
-					if ((pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress != 0 &&
+					if (pnth->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64)
+						retval = x64;
+
+					else if ((pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress != 0 &&
 						pnth->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size != 0 &&
 						(pnth->FileHeader.Characteristics & IMAGE_FILE_DLL) == 0))
 					{
@@ -81,16 +85,16 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 						// Without the 32bit preferred flag, the loader will load the .NET
 						// environment based on the current platforms bitness (x32 or x64)
 
-						// Used a File Mapping object here because of *laziness*
-
+						// we use a file map so the OS handled loading the exe and we only need
+						// to perform an RVA to VA conversion. As opposed to RVA to file offset.
 						DWORD dwSizeToMap = NULL;
-						//reset file pointer 
-						SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
 						dwSizeToMap = GetFileSize(hFile, 0);
 
-						hMapHandle = CreateFileMapping(hFile, NULL, PAGE_READONLY | SEC_IMAGE, 0, 0, 0);
+						hMapHandle = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, dwSizeToMap, 0);
 						if (!hMapHandle)
+						{
 							return retval;
+						}
 						hMapView = MapViewOfFile(hMapHandle, FILE_MAP_READ, 0, 0, dwSizeToMap);
 						if (!hMapView)
 						{
@@ -105,7 +109,7 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 							IMAGE_DATA_DIRECTORY *entry = NULL;
 							entry = &_ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR];
 							//make sure we have a proper COR header
-							if (entry || entry->VirtualAddress == 0 || entry->Size == 0 || entry->Size < sizeof(IMAGE_COR20_HEADER))
+							if (!entry || entry->VirtualAddress == 0 || entry->Size == 0 || entry->Size < sizeof(IMAGE_COR20_HEADER))
 							{
 								UnmapViewOfFile(hMapView);
 								CloseHandle(hFile);
@@ -115,7 +119,7 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 							}
 
 							PIMAGE_COR20_HEADER _corHeader = (PIMAGE_COR20_HEADER)ImageRvaToVa(_ntHeader, hMapView, entry->VirtualAddress, 0);
-							MessageBox(NULL, L"Cor heeader found", L"Msg", MB_OK);
+
 							// Here we check for our pertinent flags
 							// First lets get the 32bits required out of the way, we know that requires x32dbg
 							if ((_corHeader->Flags & COMIMAGE_FLAGS_32BITREQUIRED) == COMIMAGE_FLAGS_32BITREQUIRED)
@@ -123,7 +127,7 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 							// ILONLY, lets see if 32bit preferred is set
 							if ((_corHeader->Flags & COMIMAGE_FLAGS_ILONLY) == COMIMAGE_FLAGS_ILONLY)
 							{
-								if ((_corHeader->Flags & COMIMAGE_FLAGS_32BITPREFERRED) == COMIMAGE_FLAGS_32BITPREFERRED)
+								if ((_corHeader->Flags & COMFLAG_32BITPREFERRED) == COMFLAG_32BITPREFERRED)
 									retval = dotnet32;
 								else if ((_corHeader->Flags & COMIMAGE_FLAGS_32BITREQUIRED) == COMIMAGE_FLAGS_32BITREQUIRED)
 									retval = dotnet32;
@@ -139,9 +143,6 @@ static arch GetFileArchitecture(const TCHAR* szFileName)
 							}
 						}
 					}
-					else if (pnth->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64)
-						retval = x64;
-
 					else if (pnth->FileHeader.Machine == IMAGE_FILE_MACHINE_I386)
 						retval = x32;
 				}
